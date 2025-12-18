@@ -86,6 +86,6 @@ int main() {
 		free(map[i]);
 	}
 	free(map);
-	
+	system("pause");
 	return 0;
 }

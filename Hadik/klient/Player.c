@@ -7,7 +7,17 @@
 #define SNAKE_PORT 12367
 #define BUFFER_SIZE 1024
 
-int client() {
+int main() {
+	WSADATA wsaData;
+	int iResult;
+
+	// Initialize Winsock version 2.2
+	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (iResult != 0) {
+		printf("WSAStartup failed: %d\n", iResult);
+		return 1;
+	}
+
 	int clientSocket;
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket == INVALID_SOCKET) {
@@ -20,15 +30,15 @@ int client() {
 	memset(&serverAddress, 0, sizeof(serverAddress));
 	serverAddress.sin_family = AF_INET;
 	serverAddress.sin_port = htons(SNAKE_PORT);
-	if (inet_pton(AF_INET, "127.0.0.1", (struct sockaddr*)&serverAddress.sin_addr) < 0) {
+	if (inet_pton(AF_INET, "127.0.0.1", &serverAddress.sin_addr) <= 0) {
 		printf("Invalid address/ Address not supported \n");
-		close(clientSocket);
+		closesocket(clientSocket);
 		return 2;
 	}
 
 	if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
 		printf("Connection to server failed with error: %d\n", WSAGetLastError());
-		close(clientSocket);
+		closesocket(clientSocket);
 		return 3;
 	}
 
@@ -60,7 +70,9 @@ int client() {
 		printf("Server: %s", buffer);
 	}
 
-	close(clientSocket);
+	closesocket(clientSocket);
 	printf("Client closed.\n");
+	WSACleanup();
+	system("pause");
 	return 0;
 }

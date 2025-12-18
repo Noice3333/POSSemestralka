@@ -6,3 +6,5 @@ project(
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_subdirectory(procesy)
+add_subdirectory(klient)
+add_subdirectory(server)
