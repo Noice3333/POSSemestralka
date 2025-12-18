@@ -1,4 +1,4 @@
-add_executable(Snake Hadik.c Hadik.h "client.c")
+add_executable(Snake Hadik.c Hadik.h)
 target_sources(Snake PUBLIC
 	Hadik.c
 )
