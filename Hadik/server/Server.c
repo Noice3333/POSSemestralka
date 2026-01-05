@@ -7,6 +7,37 @@
 #define SNAKE_PORT 12367
 #define BUFFER_SIZE 1024
 
+// Thread function to handle each client
+DWORD WINAPI ClientHandler(LPVOID lpParam) {
+	SOCKET clientSocket = (SOCKET)lpParam;
+	char buffer[BUFFER_SIZE];
+	printf("Thread created for client.\n");
+	while (1) {
+		memset(buffer, 0, BUFFER_SIZE);
+		/*
+		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
+		if (bytesRead <= 0) {
+			printf("Client disconnected.\n");
+			break;
+		}
+
+		printf("Incoming message: %s", buffer);
+
+		if (strncmp(buffer, "quit", 4) == 0) {
+			printf("Ending connection.\n");
+			break;
+		}
+		*/
+		Sleep(200);
+		buffer[0] = 't';
+		printf("Sending message: %s\n", buffer);
+		send(clientSocket, buffer, strlen(buffer), 0);
+	}
+	closesocket(clientSocket);
+	return 0;
+}
+
+
 int main() {
 	WSADATA wsaData;
 	int iResult;
@@ -53,8 +84,8 @@ int main() {
 	int clientSocket;
 	struct sockaddr_in clientAddress;
 	socklen_t clienLength;
-
 	clienLength = sizeof(clientAddress);
+	/*
 	clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
 	if (clientSocket < 0) {
 		perror("Accept failed.\n");
@@ -62,25 +93,41 @@ int main() {
 		return 4;
 	}
 	printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+	*/
 	char buffer[BUFFER_SIZE];
-
+	
 	while (1) {
+		
 		memset(buffer, 0, BUFFER_SIZE);
-
+		/*
 		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
 		if (bytesRead <= 0) {
 			printf("Client disconnected.\n");
 			break;
 		}
-
+		
 		printf("Incoming message: %s\n", buffer);
-
+		
 		if (strncmp(buffer, "quit", 4) == 0) {
 			printf("Ending connection.\n");
 			break;
 		}
 
 		send(clientSocket, buffer, strlen(buffer), 0);
+		*/
+		clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
+		if (clientSocket != INVALID_SOCKET) {
+			printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+			// Create a thread for this specific client
+			HANDLE hThread = CreateThread(NULL, 0, ClientHandler, (LPVOID)clientSocket, 0, NULL);
+			if (hThread == NULL) {
+				printf("Could not create thread for client: %d\n", GetLastError());
+				closesocket(clientSocket);
+			}
+			else {
+				CloseHandle(hThread); // Close the thread handle as we don't need it
+			}
+		}
 	}
 	closesocket(serverSocket);
 	WSACleanup();
