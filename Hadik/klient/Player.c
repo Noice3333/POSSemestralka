@@ -26,16 +26,24 @@ int gameTick(void* arg) {
 		}
 		*/
 		memset(buffer, 0, BUFFER_SIZE);
-		int bytesRead = recv(tick->clientSocket, buffer, BUFFER_SIZE - 1, 0);
-		if (bytesRead <= 0) {
-			printf("Connection closed by server or error occurred.\n");
-			break;
+		int expectedSize = tick->gameInfo->drawArgs->height * tick->gameInfo->drawArgs->width;
+		int totalRead = 0;
+
+		while (totalRead < expectedSize) {
+			int bytesRead = recv(tick->clientSocket, buffer + totalRead, expectedSize - totalRead, 0);
+			if (bytesRead <= 0) {
+				printf("Connection closed by server or error occurred.\n");
+				return 1;
+			}
+			totalRead += bytesRead;
 		}
+		AcquireSRWLockExclusive(&tick->gameInfo->tickLock);
 		for (int i = 0; i < tick->gameInfo->drawArgs->height; i++) {
 			for (int j = 0; j < tick->gameInfo->drawArgs->width; j++) {
 				 tick->gameInfo->drawArgs->map[i][j] = buffer[i * (tick->gameInfo->drawArgs->width) + j];
 			}
 		}
+		ReleaseSRWLockExclusive(&tick->gameInfo->tickLock);
 		SetEvent(tick->gameInfo->drawArgs->dEvent);
 	}
 	return 0;
@@ -62,7 +70,8 @@ int consoleDrawGameWindow(int clientSocket) {
 	tickIn.gameInfo = (GameInfo*)malloc(sizeof(GameInfo));
 	tickIn.clientSocket = clientSocket;
 	tickIn.gameInfo->drawArgs = argum;
-	
+	InitializeSRWLock(&tickIn.gameInfo->tickLock);
+
 	for (int i = 0; i < argum->height; i++) {
 		for (int j = 0; j < argum->width; j++) {
 			if (i == 0 || i == argum->height - 1) {

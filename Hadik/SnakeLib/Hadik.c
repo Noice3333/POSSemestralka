@@ -15,6 +15,7 @@ int draw(void* arg) {
 		WaitForSingleObject(args->drawArgs->dEvent, INFINITE);
 		COORD cursorPosition = { 0, 0 };
 		SetConsoleCursorPosition(consoleHandle, cursorPosition);
+		AcquireSRWLockExclusive(&args->tickLock);
 		for (int i = 0; i < args->drawArgs->height; i++) {
 			for (int j = 0; j < args->drawArgs->width; j++) {
 				printf("%c", args->drawArgs->map[i][j]);
@@ -23,6 +24,7 @@ int draw(void* arg) {
 				}
 			}
 		}
+		ReleaseSRWLockExclusive(&args->tickLock);
 	}
 	return 0;
 }
@@ -53,6 +55,7 @@ int inputHandler(void* arg) {
 			case 'q': case 'Q':
 				sendThis = 'q';
 				printf("Exiting...\n");
+				send(*socket, &sendThis, 1, 0);
 				return 0;
 			default:
 				// Handle invalid keys

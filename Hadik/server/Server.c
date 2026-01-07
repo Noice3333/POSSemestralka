@@ -7,6 +7,7 @@
 
 #define SNAKE_PORT 12367
 #define BUFFER_SIZE 4096
+#define TICK_INTERVAL_MS 100
 
 int serverGameInfoInitializer(ServerInfo* info) {
 
@@ -69,12 +70,14 @@ DWORD WINAPI ClientSender(void* arg) {
 	printf("Sender thread created for client %d.\n", info->playerID);
 	while (1) {
 		WaitForSingleObject(info->tickEvent, INFINITE);
+		AcquireSRWLockShared(&info->mapLock);
 		memset(buffer, 0, BUFFER_SIZE);
 		for (int i = 0; i < info->gameInfo->drawArgs->height; i++) {
 			for (int j = 0; j < info->gameInfo->drawArgs->width; j++) {
 				buffer[i * (info->gameInfo->drawArgs->width) + j] = info->gameInfo->drawArgs->map[i][j];
 			}
 		}
+		ReleaseSRWLockShared(&info->mapLock);
 		send(clientSocket, buffer, strlen(buffer), 0);
 	}
 	closesocket(info->clientSocket);
@@ -97,6 +100,30 @@ DWORD WINAPI ClientReceiver(void* arg) {
 		}
 		printf("Received from client: %s\n", buffer);
 		// Process received data (e.g., update snake direction)
+		_Bool needToQuit = FALSE;
+		switch (buffer[0]) {
+			case 'w':
+				info->gameInfo->heads[info->playerID]->direction = DIRS[UP];
+				break;
+			case 'a':
+				info->gameInfo->heads[info->playerID]->direction = DIRS[LEFT];
+				break;
+			case 's':
+				info->gameInfo->heads[info->playerID]->direction = DIRS[DOWN];
+				break;
+			case 'd':
+				info->gameInfo->heads[info->playerID]->direction = DIRS[RIGHT];
+				break;
+			case 'q':
+				needToQuit = TRUE;
+				break;
+		}
+		if (needToQuit) {
+			printf("Connection quit by client %d.\n", info->playerID);
+			info->isConnected = FALSE;
+			break;
+		}
+		
 	}
 	closesocket(info->clientSocket);
 	return 0;
@@ -104,12 +131,15 @@ DWORD WINAPI ClientReceiver(void* arg) {
 }
 
 DWORD WINAPI TickHandler(void* arg) {
-	HANDLE* tick = (HANDLE*)arg;
+	ServerInfo* tick = (ServerInfo*)arg;
 	while (1) {
-		Sleep(1000); // Tick every second
-		SetEvent(*tick);
-		Sleep(50);
-		ResetEvent(*tick);
+		Sleep(TICK_INTERVAL_MS); // Tick every second
+		SetEvent(tick->tickEvent);
+		AcquireSRWLockExclusive(&tick->mapLock);
+		updateSnake(tick->gameInfo);
+		ReleaseSRWLockExclusive(&tick->mapLock);
+		Sleep(25);
+		ResetEvent(tick->tickEvent);
 	}
 	return 0;
 }
@@ -184,9 +214,11 @@ int main() {
 	HANDLE tickEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	ServerInfo serverInfo[MAX_PLAYERS];
 	serverGameInfoInitializer(&serverInfo[0]);
+	InitializeSRWLock(&serverInfo[0].mapLock);
 	for (size_t i = 0; i < MAX_PLAYERS; i++)
 	{
 		serverInfo[i].gameInfo = serverInfo[0].gameInfo;
+		serverInfo[i].mapLock = serverInfo[0].mapLock;
 		serverInfo[i].tickEvent = tickEvent;
 		serverInfo[i].playerID = i;
 		serverInfo[i].isConnected = FALSE;
@@ -194,7 +226,7 @@ int main() {
 	
 	
 
-	HANDLE tThread = CreateThread(NULL, 0, TickHandler, &tickEvent, 0, NULL);
+	HANDLE tThread = CreateThread(NULL, 0, TickHandler, &serverInfo[0], 0, NULL);
 	if (tThread == NULL) {
 		printf("Could not create server tick thread\n", GetLastError());
 		closesocket(clientSocket);

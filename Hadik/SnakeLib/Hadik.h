@@ -56,6 +56,7 @@ typedef struct {
 typedef struct {
 	Segment* heads[MAX_PLAYERS];
 	DrawArgs* drawArgs;
+	SRWLOCK tickLock;
 } GameInfo;
 
 typedef struct tickInfo {
@@ -69,8 +70,9 @@ typedef struct ServerInfo {
 	SOCKET clientSocket;
 	int playerID;
 	_Bool isConnected;
+	SRWLOCK mapLock;
 } ServerInfo;
 
 SNAKE_API int draw(void* arg);
 SNAKE_API int inputHandler(void* arg);
-void updateSnake(void* arg);
+SNAKE_API void updateSnake(void* arg);
