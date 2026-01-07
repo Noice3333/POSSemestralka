@@ -2,41 +2,126 @@
 #include <string.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include "Hadik.h"
 #pragma comment(lib, "Ws2_32.lib")
 
 #define SNAKE_PORT 12367
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 4096
 
-// Thread function to handle each client
-DWORD WINAPI ClientHandler(LPVOID lpParam) {
-	SOCKET clientSocket = (SOCKET)lpParam;
-	char buffer[BUFFER_SIZE];
-	printf("Thread created for client.\n");
-	while (1) {
-		memset(buffer, 0, BUFFER_SIZE);
-		/*
-		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
-		if (bytesRead <= 0) {
-			printf("Client disconnected.\n");
-			break;
-		}
+int serverGameInfoInitializer(ServerInfo* info) {
 
-		printf("Incoming message: %s", buffer);
+	HANDLE dEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	DrawArgs* argum = (DrawArgs*)malloc(sizeof(DrawArgs));
+	argum->height = 20;
+	argum->width = 30;
+	argum->dEvent = dEvent;
 
-		if (strncmp(buffer, "quit", 4) == 0) {
-			printf("Ending connection.\n");
-			break;
-		}
-		*/
-		Sleep(200);
-		buffer[0] = 't';
-		printf("Sending message: %s\n", buffer);
-		send(clientSocket, buffer, strlen(buffer), 0);
+	char** map = (char**)malloc(argum->height * sizeof(char*));
+	argum->map = map;
+
+	for (int i = 0; i < argum->height; i++) {
+		map[i] = (char*)malloc(sizeof(char) * argum->width);
 	}
-	closesocket(clientSocket);
+
+	GameInfo* gameIn = (GameInfo*)malloc(sizeof(GameInfo));
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
+		snakeHead->x = 5 + i;
+		snakeHead->y = 5;
+		snakeHead->segChar = 'A' + i;
+		snakeHead->isAlive = TRUE;
+		snakeHead->next = NULL;
+		snakeHead->direction = DIRS[DOWN];
+		gameIn->heads[i] = snakeHead;
+	}
+	gameIn->drawArgs = argum;
+
+	for (int i = 0; i < argum->height; i++) {
+		for (int j = 0; j < argum->width; j++) {
+			if (i == 0 || i == argum->height - 1) {
+				map[i][j] = '-';
+			}
+			else if (j == 0 || j == argum->width - 1) {
+				map[i][j] = '|';
+			}
+			else {
+				map[i][j] = ' ';
+			}
+		}
+	}
+
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (gameIn->heads[i] != NULL && gameIn->heads[i]->isAlive) {
+			map[gameIn->heads[i]->y][gameIn->heads[i]->x] = gameIn->heads[i]->segChar;
+		}
+	}
+
+	info->gameInfo = gameIn;
+	
 	return 0;
 }
 
+// Thread function to handle each client
+DWORD WINAPI ClientSender(void* arg) {
+	ServerInfo* info = (ServerInfo*)arg;
+	SOCKET clientSocket = info->clientSocket;
+	char buffer[BUFFER_SIZE];
+	printf("Sender thread created for client %d.\n", info->playerID);
+	while (1) {
+		WaitForSingleObject(info->tickEvent, INFINITE);
+		memset(buffer, 0, BUFFER_SIZE);
+		for (int i = 0; i < info->gameInfo->drawArgs->height; i++) {
+			for (int j = 0; j < info->gameInfo->drawArgs->width; j++) {
+				buffer[i * (info->gameInfo->drawArgs->width) + j] = info->gameInfo->drawArgs->map[i][j];
+			}
+		}
+		send(clientSocket, buffer, strlen(buffer), 0);
+	}
+	closesocket(info->clientSocket);
+
+	return 0;
+}
+
+DWORD WINAPI ClientReceiver(void* arg) {
+	ServerInfo* info = (ServerInfo*)arg;
+	SOCKET clientSocket = info->clientSocket;
+	char buffer[BUFFER_SIZE];
+	printf("Receiver thread created for client %d.\n", info->playerID);
+	while (1) {
+		memset(buffer, 0, BUFFER_SIZE);
+		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
+		if (bytesRead <= 0) {
+			printf("Connection closed by client %d or error occurred.\n", info->playerID);
+			info->isConnected = FALSE;
+			break;
+		}
+		printf("Received from client: %s\n", buffer);
+		// Process received data (e.g., update snake direction)
+	}
+	closesocket(info->clientSocket);
+	return 0;
+
+}
+
+DWORD WINAPI TickHandler(void* arg) {
+	HANDLE* tick = (HANDLE*)arg;
+	while (1) {
+		Sleep(1000); // Tick every second
+		SetEvent(*tick);
+		Sleep(50);
+		ResetEvent(*tick);
+	}
+	return 0;
+}
+
+ServerInfo* findEmptyServerInfoSlot(ServerInfo* infos) {
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (!infos[i].isConnected) {
+			return &infos[i];
+		}
+	}
+	return NULL;
+}
 
 int main() {
 	WSADATA wsaData;
@@ -81,7 +166,7 @@ int main() {
 	}
 	printf("Server listening.\n");
 
-	int clientSocket;
+	int clientSocket = 0;
 	struct sockaddr_in clientAddress;
 	socklen_t clienLength;
 	clienLength = sizeof(clientAddress);
@@ -92,43 +177,74 @@ int main() {
 		closesocket(serverSocket);
 		return 4;
 	}
-	printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+	//printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
 	*/
-	char buffer[BUFFER_SIZE];
 	
-	while (1) {
-		
-		memset(buffer, 0, BUFFER_SIZE);
-		/*
-		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
-		if (bytesRead <= 0) {
-			printf("Client disconnected.\n");
-			break;
-		}
-		
-		printf("Incoming message: %s\n", buffer);
-		
-		if (strncmp(buffer, "quit", 4) == 0) {
-			printf("Ending connection.\n");
-			break;
-		}
 
-		send(clientSocket, buffer, strlen(buffer), 0);
-		*/
+	HANDLE tickEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	ServerInfo serverInfo[MAX_PLAYERS];
+	serverGameInfoInitializer(&serverInfo[0]);
+	for (size_t i = 0; i < MAX_PLAYERS; i++)
+	{
+		serverInfo[i].gameInfo = serverInfo[0].gameInfo;
+		serverInfo[i].tickEvent = tickEvent;
+		serverInfo[i].playerID = i;
+		serverInfo[i].isConnected = FALSE;
+	}
+	
+	
+
+	HANDLE tThread = CreateThread(NULL, 0, TickHandler, &tickEvent, 0, NULL);
+	if (tThread == NULL) {
+		printf("Could not create server tick thread\n", GetLastError());
+		closesocket(clientSocket);
+		return 4;
+	}
+	else {
+		CloseHandle(tThread); // Close the thread handle as we don't need it
+	}
+
+	while (1) {
 		clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
-		if (clientSocket != INVALID_SOCKET) {
-			printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
-			// Create a thread for this specific client
-			HANDLE hThread = CreateThread(NULL, 0, ClientHandler, (LPVOID)clientSocket, 0, NULL);
-			if (hThread == NULL) {
-				printf("Could not create thread for client: %d\n", GetLastError());
-				closesocket(clientSocket);
-			}
-			else {
-				CloseHandle(hThread); // Close the thread handle as we don't need it
+		ServerInfo* emptySlot = findEmptyServerInfoSlot(serverInfo);
+		if (emptySlot == NULL) {
+			printf("No available slots for new clients.\n");
+			closesocket(clientSocket);
+		}
+		else {
+			emptySlot->clientSocket = clientSocket;
+			emptySlot->isConnected = TRUE;
+			if (clientSocket != INVALID_SOCKET) {
+				printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+				// Create a thread for this specific client
+				HANDLE sThread = CreateThread(NULL, 0, ClientSender, emptySlot, 0, NULL);
+				HANDLE rThread = CreateThread(NULL, 0, ClientReceiver, emptySlot, 0, NULL);
+				if (sThread == NULL) {
+					printf("Could not create sender thread for client: %d\n", GetLastError());
+					closesocket(clientSocket);
+					return 5;
+				}
+				else {
+					CloseHandle(sThread); // Close the thread handle as we don't need it
+				}
+				if (rThread == NULL) {
+					printf("Could not create receiver thread for client: %d\n", GetLastError());
+					closesocket(clientSocket);
+					return 6;
+				}
+				else {
+					CloseHandle(rThread); // Close the thread handle as we don't need it
+				}
 			}
 		}
 	}
+
+	for (int i = 0; i < serverInfo[0].gameInfo->drawArgs->height; i++) {
+		free(serverInfo[0].gameInfo->drawArgs->map[i]);
+	}
+	free(serverInfo[0].gameInfo->drawArgs->map);
+	free(serverInfo[0].gameInfo->heads);
+
 	closesocket(serverSocket);
 	WSACleanup();
 	system("pause");

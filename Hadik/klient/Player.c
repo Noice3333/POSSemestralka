@@ -1,19 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <winsock2.h>
+
 #include "Hadik.h"
-#include <ws2tcpip.h>
-#pragma comment(lib, "Ws2_32.lib")
+
 
 #define SNAKE_PORT 12367
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 4096
 
 int gameTick(void* arg) {
 	TickInfo* tick = (TickInfo*)arg;
 	char buffer[BUFFER_SIZE];
 
 	while (1) {
-		fflush(stdout);
 		/*
 		if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
 			printf("Error reading input.\n");
@@ -33,55 +31,44 @@ int gameTick(void* arg) {
 			printf("Connection closed by server or error occurred.\n");
 			break;
 		}
-		printf("%s", buffer);
+		for (int i = 0; i < tick->gameInfo->drawArgs->height; i++) {
+			for (int j = 0; j < tick->gameInfo->drawArgs->width; j++) {
+				 tick->gameInfo->drawArgs->map[i][j] = buffer[i * (tick->gameInfo->drawArgs->width) + j];
+			}
+		}
 		SetEvent(tick->gameInfo->drawArgs->dEvent);
 	}
+	return 0;
 }
 
 int consoleDrawGameWindow(int clientSocket) {
-
+	
 	HANDLE dEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	system("cls");
-	DrawArgs argum;
-	argum.height = 20;
-	argum.width = 30;
-	argum.dEvent = dEvent;
+	DrawArgs* argum = (DrawArgs*)malloc(sizeof(DrawArgs));
+	argum->height = 20;
+	argum->width = 30;
+	argum->dEvent = dEvent;
 
-	char** map = (char**)malloc(argum.height * sizeof(char*));
-	argum.map = map;
+	char** map = (char**)malloc(argum->height * sizeof(char*));
+	argum->map = map;
 
 	
-	for (int i = 0; i < argum.height; i++) {
-		map[i] = (char*)malloc(sizeof(char) * argum.width);
+	for (int i = 0; i < argum->height; i++) {
+		map[i] = (char*)malloc(sizeof(char) * argum->width);
 	}
-
-	GameInfo gamIn;
-	for (int i = 0; i < MAX_PLAYERS; i++) {
-		Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
-		snakeHead->x = 5 + i;
-		snakeHead->y = 5;
-		snakeHead->segChar = 'A' + i;
-		snakeHead->direction = DIRS[DOWN];
-		snakeHead->isAlive = TRUE;
-		snakeHead->next = NULL;
-		gamIn.heads[i] = snakeHead;
-	}
-	gamIn.heads[1]->direction = DIRS[LEFT];
-	gamIn.heads[2]->direction = DIRS[UP];
-	gamIn.heads[3]->direction = DIRS[RIGHT];
-	gamIn.drawArgs = &argum;
 
 	TickInfo tickIn;
-	tickIn.gameInfo = &gamIn;
+	tickIn.gameInfo = (GameInfo*)malloc(sizeof(GameInfo));
 	tickIn.clientSocket = clientSocket;
+	tickIn.gameInfo->drawArgs = argum;
 	
-	for (int i = 0; i < argum.height; i++) {
-		for (int j = 0; j < argum.width; j++) {
-			if (i == 0 || i == argum.height - 1) {
+	for (int i = 0; i < argum->height; i++) {
+		for (int j = 0; j < argum->width; j++) {
+			if (i == 0 || i == argum->height - 1) {
 				map[i][j] = '-';
 			}
-			else if (j == 0 || j == argum.width - 1) {
+			else if (j == 0 || j == argum->width - 1) {
 				map[i][j] = '|';
 			}
 			else {
@@ -89,29 +76,24 @@ int consoleDrawGameWindow(int clientSocket) {
 			}
 		}
 	}
-
-	for (int i = 0; i < MAX_PLAYERS; i++) {
-		if (gamIn.heads[i]->isAlive) {
-			map[gamIn.heads[i]->y][gamIn.heads[i]->x] = gamIn.heads[i]->segChar;
-		}
-	}
 	
 
 	thrd_t drawThread;
 	thrd_t inputThread;
 	thrd_t tickThread;
-	thrd_create(&drawThread, draw, &gamIn);
-	thrd_create(&inputThread, inputHandler, &gamIn);
+	thrd_create(&drawThread, draw, tickIn.gameInfo);
+	thrd_create(&inputThread, inputHandler, &tickIn.clientSocket);
 	thrd_create(&tickThread, gameTick, &tickIn);
 
 	thrd_join(drawThread, NULL);
 	thrd_join(inputThread, NULL);
 	thrd_join(tickThread, NULL);
 
-	for (int i = 0; i < argum.height; i++) {
+	for (int i = 0; i < argum->height; i++) {
 		free(map[i]);
 	}
 	free(map);
+
 	system("pause");
 	return 0;
 }
@@ -144,13 +126,13 @@ int main() {
 		closesocket(clientSocket);
 		return 2;
 	}
-
+	
 	if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
 		printf("Connection to server failed with error: %d\n", WSAGetLastError());
 		closesocket(clientSocket);
 		return 3;
 	}
-
+	
 	printf("Connected to server successfully.\n");
 	
 	// Game logic starts here

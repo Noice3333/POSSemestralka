@@ -3,8 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <threads.h>
-#include <windows.h>
-#include <conio.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+
+
+
 
 #ifdef _WIN32
 #define SNAKE_API __declspec(dllexport)
@@ -12,7 +16,7 @@
 #define SNAKE_API
 #endif
 
-#define MAX_PLAYERS 4
+#define MAX_PLAYERS 2
 
 typedef struct {
 	int width;
@@ -59,6 +63,14 @@ typedef struct tickInfo {
 	int clientSocket;
 } TickInfo;
 
+typedef struct ServerInfo {
+	GameInfo* gameInfo;
+	HANDLE tickEvent;
+	SOCKET clientSocket;
+	int playerID;
+	_Bool isConnected;
+} ServerInfo;
+
 SNAKE_API int draw(void* arg);
 SNAKE_API int inputHandler(void* arg);
-void updateSnake(Segment* head, int width, int height);
+void updateSnake(void* arg);
