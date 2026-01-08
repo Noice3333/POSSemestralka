@@ -73,7 +73,6 @@ void updateSnake(void* arg) {
 	
 	for (int i = 0; i < MAX_PLAYERS; i++) {
 		Segment* current = args->heads[i];
-		Direction beforeDir = DIRS[STOP];
 		Segment* last = current;
 		int snakeLength = 1;
 		int counter = 0;
@@ -82,7 +81,8 @@ void updateSnake(void* arg) {
 			snakeLength++;
 			last = last->next;
 		}
-
+		int lastOriginalX = last->x;
+		int lastOriginalY = last->y;
 		while (counter < snakeLength) {
 			if (current != NULL && current->isAlive) {
 
@@ -91,15 +91,6 @@ void updateSnake(void* arg) {
 				current->x += current->direction.difX;
 				current->y += current->direction.difY;
 
-				if (counter != 0) {
-					// Update direction to follow the previous segment
-					Direction dirRightNow = current->direction;
-					current->direction = beforeDir;
-					beforeDir = dirRightNow;
-				} else {
-					beforeDir = current->direction;
-				}
-
 				// Check for food collision
 				for (int j = 0; j < MAX_PLAYERS; j++) {
 					if (current->x == args->food[j]->x && current->y == args->food[j]->y) {
@@ -107,13 +98,14 @@ void updateSnake(void* arg) {
 						if (newFoodPos != NULL) {
 							args->food[j]->x = newFoodPos->x;
 							args->food[j]->y = newFoodPos->y;
+							//args->food[j]->y += 1;
 							args->drawArgs->map[args->food[j]->y][args->food[j]->x] = args->food[j]->segChar;
 							free(newFoodPos);
 						}
 						Segment* next = (Segment*)malloc(sizeof(Segment));
-						next->x = last->x;
-						next->y = last->y;
-						next->segChar = '#';
+						next->x = lastOriginalX;
+						next->y = lastOriginalY;
+						next->segChar = '0' + snakeLength;
 						next->direction = DIRS[STOP];
 						next->isAlive = TRUE;
 						next->next = NULL;
@@ -141,13 +133,27 @@ void updateSnake(void* arg) {
 			current = current->next;
 			counter++;
 		}
+		current = args->heads[i];
+		Segment* nextGuy;
+		Direction tempDirs[2];
+		_Bool tempDirSwapper = 0;
+		tempDirs[0] = current->direction;
+		while (current != NULL && current->isAlive && current->next != NULL) {
+			nextGuy = current->next;
+
+			tempDirs[!tempDirSwapper] = nextGuy->direction;
+			nextGuy->direction = tempDirs[tempDirSwapper];
+
+			tempDirSwapper = !tempDirSwapper;
+			current = current->next;
+		}
 	}
 }
 
 Position* findEmptySpace(void* arg) {
 	GameInfo* args = (GameInfo*)arg;
 	int attempts = 0;
-	while (attempts < 20) {
+	while (attempts < 100) {
 		int randomWide = (rand() % (args->drawArgs->width - 2)) + 1;
 		int randomHeight = (rand() % (args->drawArgs->height - 2)) + 1;
 		if (args->drawArgs->map[randomHeight][randomWide] == ' ') {

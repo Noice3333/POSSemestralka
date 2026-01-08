@@ -7,7 +7,7 @@
 
 #define SNAKE_PORT 12367
 #define BUFFER_SIZE 4096
-#define TICK_INTERVAL_MS 100
+#define TICK_INTERVAL_MS 200
 
 int serverGameInfoInitializer(ServerInfo* info) {
 
@@ -55,7 +55,7 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		snakeHead->segChar = 'A' + i;
 		snakeHead->isAlive = TRUE;
 		snakeHead->next = NULL;
-		snakeHead->direction = DIRS[STOP];
+		snakeHead->direction = DIRS[DOWN];
 		gameIn->heads[i] = snakeHead;
 	}
 	for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -75,7 +75,6 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		foodSeg->next = NULL;
 		gameIn->food[i] = foodSeg;
 	}
-	
 
 	for (int i = 0; i < MAX_PLAYERS; i++) {
 		if (gameIn->food[i] != NULL) {
@@ -255,7 +254,6 @@ int main() {
 		serverInfo[i].playerID = i;
 		serverInfo[i].isConnected = FALSE;
 	}
-	
 	
 
 	HANDLE tThread = CreateThread(NULL, 0, TickHandler, &serverInfo[0], 0, NULL);
