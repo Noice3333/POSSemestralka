@@ -51,7 +51,7 @@ typedef struct Position {
 	int y;
 } Position;
 
-typedef struct {
+typedef struct Segment {
 	int x;
 	int y;
 	char segChar;
@@ -78,6 +78,7 @@ typedef struct ServerInfo {
 	SOCKET clientSocket;
 	int playerID;
 	_Bool isConnected;
+	_Bool needToQuit;
 	SRWLOCK mapLock;
 } ServerInfo;
 

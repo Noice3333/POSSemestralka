@@ -9,6 +9,26 @@
 #define BUFFER_SIZE 4096
 #define TICK_INTERVAL_MS 200
 
+void spawnSnake(GameInfo* gameIn, int playerIndex) {
+	Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
+	Position* playerPos = findEmptySpace(gameIn);
+	if (playerPos != NULL) {
+		snakeHead->x = playerPos->x;
+		snakeHead->y = playerPos->y;
+		free(playerPos);
+	}
+	else {
+		snakeHead->x = 5 + playerIndex;
+		snakeHead->y = 5;
+	}
+	snakeHead->segChar = 'A' + playerIndex;
+	snakeHead->isAlive = TRUE;
+	snakeHead->next = NULL;
+	snakeHead->direction = DIRS[STOP];
+	gameIn->heads[playerIndex] = snakeHead;
+	gameIn->drawArgs->map[gameIn->heads[playerIndex]->y][gameIn->heads[playerIndex]->x] = gameIn->heads[playerIndex]->segChar;
+}
+
 int serverGameInfoInitializer(ServerInfo* info) {
 
 	HANDLE dEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -41,6 +61,7 @@ int serverGameInfoInitializer(ServerInfo* info) {
 	GameInfo* gameIn = (GameInfo*)malloc(sizeof(GameInfo));
 	gameIn->drawArgs = argum;
 	for (int i = 0; i < MAX_PLAYERS; i++) {
+		/*
 		Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
 		Position* playerPos = findEmptySpace(gameIn);
 		if (playerPos != NULL) {
@@ -55,8 +76,10 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		snakeHead->segChar = 'A' + i;
 		snakeHead->isAlive = TRUE;
 		snakeHead->next = NULL;
-		snakeHead->direction = DIRS[DOWN];
+		snakeHead->direction = DIRS[STOP];
 		gameIn->heads[i] = snakeHead;
+		*/
+		spawnSnake(gameIn, i);
 	}
 	for (int i = 0; i < MAX_PLAYERS; i++) {
 		Segment* foodSeg = (Segment*)malloc(sizeof(Segment));
@@ -79,9 +102,6 @@ int serverGameInfoInitializer(ServerInfo* info) {
 	for (int i = 0; i < MAX_PLAYERS; i++) {
 		if (gameIn->food[i] != NULL) {
 			map[gameIn->food[i]->y][gameIn->food[i]->x] = gameIn->food[i]->segChar;
-		}
-		if (gameIn->heads[i] != NULL && gameIn->heads[i]->isAlive) {
-			map[gameIn->heads[i]->y][gameIn->heads[i]->x] = gameIn->heads[i]->segChar;
 		}
 	}
 
@@ -106,9 +126,12 @@ DWORD WINAPI ClientSender(void* arg) {
 			}
 		}
 		ReleaseSRWLockShared(&info->mapLock);
+		if (info->needToQuit) {
+			printf("Sender thread %d terminated due to quitting.\n", info->playerID);
+			break;
+		}
 		send(clientSocket, buffer, strlen(buffer), 0);
 	}
-	closesocket(info->clientSocket);
 
 	return 0;
 }
@@ -128,31 +151,37 @@ DWORD WINAPI ClientReceiver(void* arg) {
 		}
 		printf("Received from client: %s\n", buffer);
 		// Process received data (e.g., update snake direction)
-		_Bool needToQuit = FALSE;
+		AcquireSRWLockExclusive(&info->mapLock);
+		Direction newDir = DIRS[STOP];
+		_Bool newStatus = TRUE;
 		switch (buffer[0]) {
 			case 'w':
-				info->gameInfo->heads[info->playerID]->direction = DIRS[UP];
+				newDir = DIRS[UP];
 				break;
 			case 'a':
-				info->gameInfo->heads[info->playerID]->direction = DIRS[LEFT];
+				newDir = DIRS[LEFT];
 				break;
 			case 's':
-				info->gameInfo->heads[info->playerID]->direction = DIRS[DOWN];
+				newDir = DIRS[DOWN];
 				break;
 			case 'd':
-				info->gameInfo->heads[info->playerID]->direction = DIRS[RIGHT];
+				newDir = DIRS[RIGHT];
 				break;
 			case 'q':
-				info->gameInfo->heads[info->playerID]->direction = DIRS[STOP];
-				needToQuit = TRUE;
+				newStatus = FALSE;
+				info->needToQuit = TRUE;
 				break;
 		}
-		if (needToQuit) {
+		if (info->gameInfo->heads[info->playerID] != NULL) {
+			info->gameInfo->heads[info->playerID]->direction = newDir;
+			info->gameInfo->heads[info->playerID]->isAlive = newStatus;
+		}
+		ReleaseSRWLockExclusive(&info->mapLock);
+		if (info->needToQuit) {
 			printf("Connection quit by client %d.\n", info->playerID);
 			info->isConnected = FALSE;
 			break;
 		}
-		
 	}
 	closesocket(info->clientSocket);
 	return 0;
@@ -205,7 +234,7 @@ int main() {
 	printf("Socket created successfully.\n");
 
 	int opt = 1;
-	setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (const char*) &opt, sizeof(opt));
 
 	struct sockaddr_in serverAddress;
 	memset(&serverAddress, 0, sizeof(serverAddress));
@@ -253,8 +282,8 @@ int main() {
 		serverInfo[i].tickEvent = tickEvent;
 		serverInfo[i].playerID = i;
 		serverInfo[i].isConnected = FALSE;
+		serverInfo[i].needToQuit = FALSE;
 	}
-	
 
 	HANDLE tThread = CreateThread(NULL, 0, TickHandler, &serverInfo[0], 0, NULL);
 	if (tThread == NULL) {
@@ -276,8 +305,12 @@ int main() {
 		else {
 			emptySlot->clientSocket = clientSocket;
 			emptySlot->isConnected = TRUE;
+			emptySlot->needToQuit = FALSE;
 			if (clientSocket != INVALID_SOCKET) {
 				printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+				if (emptySlot->gameInfo->heads[emptySlot->playerID] == NULL) {
+					spawnSnake(emptySlot->gameInfo, emptySlot->playerID);
+				}
 				// Create a thread for this specific client
 				HANDLE sThread = CreateThread(NULL, 0, ClientSender, emptySlot, 0, NULL);
 				HANDLE rThread = CreateThread(NULL, 0, ClientReceiver, emptySlot, 0, NULL);
