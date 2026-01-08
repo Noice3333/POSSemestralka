@@ -24,19 +24,6 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		map[i] = (char*)malloc(sizeof(char) * argum->width);
 	}
 
-	GameInfo* gameIn = (GameInfo*)malloc(sizeof(GameInfo));
-	for (int i = 0; i < MAX_PLAYERS; i++) {
-		Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
-		snakeHead->x = 5 + i;
-		snakeHead->y = 5;
-		snakeHead->segChar = 'A' + i;
-		snakeHead->isAlive = TRUE;
-		snakeHead->next = NULL;
-		snakeHead->direction = DIRS[DOWN];
-		gameIn->heads[i] = snakeHead;
-	}
-	gameIn->drawArgs = argum;
-
 	for (int i = 0; i < argum->height; i++) {
 		for (int j = 0; j < argum->width; j++) {
 			if (i == 0 || i == argum->height - 1) {
@@ -51,7 +38,49 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		}
 	}
 
+	GameInfo* gameIn = (GameInfo*)malloc(sizeof(GameInfo));
+	gameIn->drawArgs = argum;
 	for (int i = 0; i < MAX_PLAYERS; i++) {
+		Segment* snakeHead = (Segment*)malloc(sizeof(Segment));
+		Position* playerPos = findEmptySpace(gameIn);
+		if (playerPos != NULL) {
+			snakeHead->x = playerPos->x;
+			snakeHead->y = playerPos->y;
+			free(playerPos);
+		}
+		else {
+			snakeHead->x = 5 + i;
+			snakeHead->y = 5;
+		}
+		snakeHead->segChar = 'A' + i;
+		snakeHead->isAlive = TRUE;
+		snakeHead->next = NULL;
+		snakeHead->direction = DIRS[STOP];
+		gameIn->heads[i] = snakeHead;
+	}
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		Segment* foodSeg = (Segment*)malloc(sizeof(Segment));
+		Position* foodPos = findEmptySpace(gameIn);
+		if (foodPos != NULL) {
+			foodSeg->x = foodPos->x;
+			foodSeg->y = foodPos->y;
+			free(foodPos);
+		}
+		else {
+			foodSeg->x = 10 + i;
+			foodSeg->y = 10;
+		}
+		foodSeg->segChar = '@';
+		foodSeg->isAlive = TRUE;
+		foodSeg->next = NULL;
+		gameIn->food[i] = foodSeg;
+	}
+	
+
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (gameIn->food[i] != NULL) {
+			map[gameIn->food[i]->y][gameIn->food[i]->x] = gameIn->food[i]->segChar;
+		}
 		if (gameIn->heads[i] != NULL && gameIn->heads[i]->isAlive) {
 			map[gameIn->heads[i]->y][gameIn->heads[i]->x] = gameIn->heads[i]->segChar;
 		}
@@ -115,6 +144,7 @@ DWORD WINAPI ClientReceiver(void* arg) {
 				info->gameInfo->heads[info->playerID]->direction = DIRS[RIGHT];
 				break;
 			case 'q':
+				info->gameInfo->heads[info->playerID]->direction = DIRS[STOP];
 				needToQuit = TRUE;
 				break;
 		}
@@ -154,6 +184,8 @@ ServerInfo* findEmptyServerInfoSlot(ServerInfo* infos) {
 }
 
 int main() {
+	srand(time(NULL));
+
 	WSADATA wsaData;
 	int iResult;
 

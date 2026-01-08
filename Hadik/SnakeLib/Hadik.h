@@ -34,15 +34,22 @@ enum DirectionEnum {
 	UP,
 	DOWN,
 	LEFT,
-	RIGHT
+	RIGHT,
+	STOP
 };
 
 const Direction DIRS[] = {
 	[UP] = {0, -1},  // Up
 	[DOWN] = {0, 1},   // Down
 	[LEFT] = {-1, 0},  // Left
-	[RIGHT] = {1, 0}    // Right
+	[RIGHT] = {1, 0},    // Right
+	[STOP] = {0, 0}    // Stop
 };
+
+typedef struct Position {
+	int x;
+	int y;
+} Position;
 
 typedef struct {
 	int x;
@@ -55,6 +62,7 @@ typedef struct {
 
 typedef struct {
 	Segment* heads[MAX_PLAYERS];
+	Segment* food[MAX_PLAYERS];
 	DrawArgs* drawArgs;
 	SRWLOCK tickLock;
 } GameInfo;
@@ -76,3 +84,4 @@ typedef struct ServerInfo {
 SNAKE_API int draw(void* arg);
 SNAKE_API int inputHandler(void* arg);
 SNAKE_API void updateSnake(void* arg);
+SNAKE_API Position* findEmptySpace(void* arg);
