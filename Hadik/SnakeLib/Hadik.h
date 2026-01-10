@@ -16,12 +16,19 @@
 #define SNAKE_API
 #endif
 
-#define MAX_PLAYERS 2
+#define MAX_PLAYERS 4
+#define MAX_GAME_WIDTH 70
+#define MAX_GAME_HEIGHT 30
+#define MAX_GAME_TIME 10000
+#define DEFAULT_GAME_WIDTH 30
+#define DEFAULT_GAME_HEIGHT 20
+#define DEFAULT_GAME_TIME 0
+#define DEFAULT_PLAYER_COUNT 1
 
 typedef struct {
 	int width;
 	int height;
-	char** map;
+	char* map;
 	HANDLE dEvent;
 } DrawArgs;
 
@@ -36,6 +43,18 @@ enum DirectionEnum {
 	LEFT,
 	RIGHT,
 	STOP
+};
+
+enum ControlMode {
+	MODE_PLAY,
+	MODE_MENU
+};
+
+enum MenuItem {
+	MENU_NEW_GAME,
+	MENU_JOIN_GAME,
+	MENU_CONTINUE,
+	MENU_EXIT
 };
 
 const Direction DIRS[] = {
@@ -60,17 +79,31 @@ typedef struct Segment {
 	BOOLEAN isAlive;
 } Segment;
 
+typedef struct InputInfo {
+	int newGameWidth;
+	int newGameHeight;
+	int newGamePlayerCount;
+	int newGameTimeLimit;
+	int clientSocket;
+	int mode;
+	_Bool continueGame;
+} InputInfo;
+
 typedef struct {
 	Segment* heads[MAX_PLAYERS];
 	Segment* food[MAX_PLAYERS];
 	DrawArgs* drawArgs;
 	SRWLOCK tickLock;
+	InputInfo* inputInfo;
+	_Bool isRunning;
 } GameInfo;
 
-typedef struct tickInfo {
+typedef struct TickInfo {
 	GameInfo* gameInfo;
 	int clientSocket;
 } TickInfo;
+
+
 
 typedef struct ServerInfo {
 	GameInfo* gameInfo;
@@ -79,6 +112,7 @@ typedef struct ServerInfo {
 	int playerID;
 	_Bool isConnected;
 	_Bool needToQuit;
+	_Bool serverClosing;
 	SRWLOCK mapLock;
 } ServerInfo;
 
