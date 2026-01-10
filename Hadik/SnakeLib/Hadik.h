@@ -71,12 +71,12 @@ typedef struct Position {
 } Position;
 
 typedef struct Segment {
+	struct Segment* next;
 	int x;
 	int y;
-	char segChar;
 	Direction direction;
-	struct Segment* next;
 	BOOLEAN isAlive;
+	char segChar;
 } Segment;
 
 typedef struct InputInfo {
@@ -89,12 +89,20 @@ typedef struct InputInfo {
 	_Bool continueGame;
 } InputInfo;
 
+typedef struct MapPacket {
+	int width;
+	int height;
+	int mapSize;
+	_Bool permissionToConnect;
+} MapPacket;
+
 typedef struct {
 	Segment* heads[MAX_PLAYERS];
 	Segment* food[MAX_PLAYERS];
 	DrawArgs* drawArgs;
 	SRWLOCK tickLock;
 	InputInfo* inputInfo;
+	int elapsedTimeMS;
 	_Bool isRunning;
 } GameInfo;
 

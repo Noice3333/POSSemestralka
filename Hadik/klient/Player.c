@@ -13,29 +13,52 @@ int gameTick(void* arg) {
 
 	while (1) {
 		if (!tick->gameInfo->inputInfo->continueGame) {
+			SetEvent(tick->gameInfo->drawArgs->dEvent);
 			break;
 		}
 		memset(buffer, 0, BUFFER_SIZE);
-		int expectedSize = tick->gameInfo->drawArgs->height * tick->gameInfo->drawArgs->width;
 		int totalRead = 0;
 
-		while (totalRead < expectedSize) {
-			int bytesRead = recv(tick->clientSocket, buffer + totalRead, expectedSize - totalRead, 0);
+		while (totalRead < sizeof(MapPacket)) {
+			int bytesRead = recv(tick->clientSocket, buffer + totalRead, sizeof(MapPacket) - totalRead, 0);
 			if (bytesRead <= 0) {
 				printf("Connection closed by server or error occurred.\n");
 				return 1;
 			}
 			totalRead += bytesRead;
 		}
+		MapPacket* mapInfo = (MapPacket*)buffer;
+		MapPacket localMapInfo = *mapInfo;
+		mapInfo = NULL;
+		memset(buffer, 0, BUFFER_SIZE);
+		totalRead = 0;
+		
 		AcquireSRWLockExclusive(&tick->gameInfo->tickLock);
-		/*
-		for (int i = 0; i < tick->gameInfo->drawArgs->height; i++) {
-			for (int j = 0; j < tick->gameInfo->drawArgs->width; j++) {
-				 tick->gameInfo->drawArgs->map[i * tick->gameInfo->drawArgs->width + j] = buffer[i * (tick->gameInfo->drawArgs->width) + j];
+		if (localMapInfo.height * localMapInfo.width == localMapInfo.mapSize &&
+			localMapInfo.height >= 10 && localMapInfo.width >= 10 &&
+			localMapInfo.height <= MAX_GAME_HEIGHT &&
+			localMapInfo.width <= MAX_GAME_WIDTH) {
+			if (localMapInfo.height != tick->gameInfo->drawArgs->height ||
+				localMapInfo.width != tick->gameInfo->drawArgs->width) {
+				char* new = (char*)realloc(tick->gameInfo->drawArgs->map, localMapInfo.mapSize);
+				tick->gameInfo->drawArgs->map = new;
+				tick->gameInfo->drawArgs->height = localMapInfo.height;
+				tick->gameInfo->drawArgs->width = localMapInfo.width;
 			}
 		}
-		*/
-		memcpy(tick->gameInfo->drawArgs->map, buffer, expectedSize);
+		if (localMapInfo.mapSize > 0) {
+			while (totalRead < localMapInfo.mapSize) {
+				int bytesRead = recv(tick->clientSocket, tick->gameInfo->drawArgs->map + totalRead, localMapInfo.mapSize - totalRead, 0);
+				if (bytesRead < 0) {
+					printf("Connection closed by server or error occurred.\n");
+					tick->gameInfo->inputInfo->continueGame = FALSE;
+					ReleaseSRWLockExclusive(&tick->gameInfo->tickLock);
+					SetEvent(tick->gameInfo->drawArgs->dEvent);
+					return 1;
+				}
+				totalRead += bytesRead;
+			}
+		}
 		ReleaseSRWLockExclusive(&tick->gameInfo->tickLock);
 		SetEvent(tick->gameInfo->drawArgs->dEvent);
 	}
@@ -47,8 +70,8 @@ int consoleDrawGameWindow(int clientSocket) {
 	HANDLE dEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
 	DrawArgs* argum = (DrawArgs*)malloc(sizeof(DrawArgs));
-	argum->height = 20;
-	argum->width = 30;
+	argum->height = DEFAULT_GAME_HEIGHT;
+	argum->width = DEFAULT_GAME_WIDTH;
 	argum->dEvent = dEvent;
 
 	char* map = (char*)malloc(argum->height * argum->width * sizeof(char*));
@@ -99,9 +122,6 @@ int consoleDrawGameWindow(int clientSocket) {
 	thrd_join(tickThread, NULL);
 
 	
-	for (int i = 0; i < argum->height; i++) {
-		free(map[i]);
-	}
 	free(map);
 	free(tickIn.gameInfo->drawArgs);
 	free(tickIn.gameInfo);

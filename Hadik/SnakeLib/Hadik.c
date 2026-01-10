@@ -39,6 +39,9 @@ int draw(void* arg) {
 			printf("Menu Mode\nn - New game\nj - Join game\nc - Continue\ne- Exit\n");
 		}
 		else if (*currentMode == MODE_PLAY) {
+			if (!needToClear) {
+				system("cls");
+			}
 			needToClear = TRUE;
 			for (int i = 0; i < args->drawArgs->height; i++) {
 				for (int j = 0; j < args->drawArgs->width; j++) {
@@ -59,6 +62,7 @@ int inputHandler(void* arg) {
 	int* socket = &input->inputInfo->clientSocket;
 	char sendThis = ' ';
 	char buffer[10];
+	char response = ' ';
 	while (1) {
 		if (_kbhit()) {
 			int ch = _getch();
@@ -156,8 +160,8 @@ int inputHandler(void* arg) {
 					}
 
 					system("pause");
-					*currentMode = MODE_PLAY;
 					ReleaseSRWLockExclusive(&input->tickLock);
+					input->inputInfo->mode = MODE_PLAY;
 					system("cls");
 					sendThis = 'n';
 					break;
@@ -203,13 +207,39 @@ int inputHandler(void* arg) {
 					*currentMode = MODE_MENU;
 					ReleaseSRWLockExclusive(&input->tickLock);
 					break;
+				case 'r': case 'R':
+					sendThis = 'r';
+					break;
 				default:
 					break;
 				}
 			}
 			send(*socket, &sendThis, 1, 0);
-			if (sendThis == 'n') {
+			switch (sendThis) {
+			case 'n':
 				send(*socket, (char*)input->inputInfo, sizeof(InputInfo), 0);
+				/*
+				recv(*socket, &response, 1, 0);
+				if (response == 'y') {
+					AcquireSRWLockExclusive(&input->tickLock);
+					*currentMode = MODE_PLAY;
+					ReleaseSRWLockExclusive(&input->tickLock);
+				}
+				*/
+				break;
+			case 'j':
+				/*
+				recv(*socket, &response, 1, 0);
+				if (response == 'y') {
+					AcquireSRWLockExclusive(&input->tickLock);
+					*currentMode = MODE_PLAY;
+					ReleaseSRWLockExclusive(&input->tickLock);
+				}
+				else {
+					printf("Current game is full!\n");
+				}
+				*/
+				break;
 			}
 		}
 		AcquireSRWLockExclusive(&input->tickLock);
@@ -241,7 +271,7 @@ void updateSnake(void* arg) {
 	if (args == NULL || !args->isRunning) {
 		return;
 	}
-	for (int i = 0; i < args->inputInfo->newGamePlayerCount; i++) {
+	for (int i = 0; i < MAX_PLAYERS; i++) {
 		Segment* current = args->heads[i];
 		if (current != NULL) {
 			Segment* last = current;

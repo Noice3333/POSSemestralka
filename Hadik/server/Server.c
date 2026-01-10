@@ -132,14 +132,15 @@ int serverGameInfoInitializer(ServerInfo* info) {
 	gameIn->drawArgs = argum;
 
 	for (int i = 0; i < info->gameInfo->inputInfo->newGamePlayerCount; i++) {
-		spawnSnake(gameIn, i);
+		
 	}
+	spawnSnake(gameIn, info->playerID);
 	for (int i = 0; i < info->gameInfo->inputInfo->newGamePlayerCount; i++) {
 		spawnFood(gameIn, i);
 	}
 
 	if (1) {
-		for (int i = 0; i < argum->height * argum->width / 10; i++) {
+		for (int i = 0; i < argum->height * argum->width / 20; i++) {
 			Position* pos = findEmptySpace(gameIn);
 			if (pos != NULL) {
 				argum->map[pos->y * argum->width + pos->x] = 'X';
@@ -158,12 +159,21 @@ DWORD WINAPI ClientSender(void* arg) {
 	SOCKET clientSocket = info->clientSocket;
 	char buffer[BUFFER_SIZE];
 	printf("Sender thread created for client %d.\n", info->playerID);
-	while (1) {
+	while (!info->serverClosing) {
 		WaitForSingleObject(info->tickEvent, INFINITE);
 		AcquireSRWLockShared(&info->mapLock);
-		int expectedSize = info->gameInfo->drawArgs->height * info->gameInfo->drawArgs->width;
+		MapPacket packet;
+		packet.height = DEFAULT_GAME_HEIGHT;
+		packet.mapSize = 0;
+		packet.width = DEFAULT_GAME_WIDTH;
+		packet.permissionToConnect = TRUE;
+		int expectedSize = 0;
 		memset(buffer, 0, BUFFER_SIZE);
 		if (info->gameInfo != NULL && info->gameInfo->isRunning) {
+			expectedSize = info->gameInfo->drawArgs->height * info->gameInfo->drawArgs->width;
+			packet.mapSize = expectedSize;
+			packet.height = info->gameInfo->drawArgs->height;
+			packet.width = info->gameInfo->drawArgs->width;
 			/*
 			for (int i = 0; i < info->gameInfo->drawArgs->height; i++) {
 				for (int j = 0; j < info->gameInfo->drawArgs->width; j++) {
@@ -173,22 +183,16 @@ DWORD WINAPI ClientSender(void* arg) {
 			*/
 			memcpy(buffer, info->gameInfo->drawArgs->map, expectedSize);
 		}
-		else {
-			memset(buffer, ' ', expectedSize);
-		}
 		ReleaseSRWLockShared(&info->mapLock);
 		if (info->needToQuit) {
 			printf("Sender thread %d terminated due to quitting.\n", info->playerID);
 			break;
 		}
-		if (info->gameInfo->drawArgs != NULL) {
-			send(clientSocket, buffer, expectedSize, 0);
-		}
-		else {
-			send(clientSocket, buffer, 1, 0);
+		send(clientSocket, (void*)&packet, sizeof(MapPacket), 0);
+		if (expectedSize > 0) {
+			send(clientSocket, buffer, packet.mapSize, 0);
 		}
 	}
-
 	return 0;
 }
 
@@ -197,7 +201,7 @@ DWORD WINAPI ClientReceiver(void* arg) {
 	SOCKET clientSocket = info->clientSocket;
 	char buffer[BUFFER_SIZE];
 	printf("Receiver thread created for client %d.\n", info->playerID);
-	while (1) {
+	while (!info->serverClosing) {
 		memset(buffer, 0, BUFFER_SIZE);
 		int bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
 		if (bytesRead <= 0) {
@@ -214,11 +218,9 @@ DWORD WINAPI ClientReceiver(void* arg) {
 			head = info->gameInfo->heads[info->playerID];
 		}
 		Direction newDir;
-		if (head != NULL) {
+		newDir = DIRS[STOP];
+		if (head != NULL && info->gameInfo->isRunning) {
 			newDir = head->direction;
-		}
-		else {
-			newDir = DIRS[STOP];
 		}
 		switch (buffer[0]) {
 		case 'w':
@@ -241,26 +243,45 @@ DWORD WINAPI ClientReceiver(void* arg) {
 			newDir = DIRS[STOP];
 			break;
 		case 'n':
-			bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
-			InputInfo* received = (InputInfo*)buffer;
-			if (bytesRead <= 0) {
-				printf("Connection closed by client %d or error occurred.\n", info->playerID);
-				info->isConnected = FALSE;
-				break;
+			if (!info->gameInfo->isRunning) {
+				bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
+				InputInfo* received = (InputInfo*)buffer;
+				if (bytesRead <= 0) {
+					printf("Connection closed by client %d or error occurred.\n", info->playerID);
+					info->isConnected = FALSE;
+					break;
+				}
+				info->gameInfo->inputInfo->newGameWidth = received->newGameWidth;
+				info->gameInfo->inputInfo->newGameHeight = received->newGameHeight;
+				info->gameInfo->inputInfo->newGamePlayerCount = received->newGamePlayerCount;
+				info->gameInfo->inputInfo->newGameTimeLimit = received->newGameTimeLimit;
+				serverGameInfoInitializer(info);
 			}
-			info->gameInfo->inputInfo->newGameWidth = received->newGameWidth;
-			info->gameInfo->inputInfo->newGameHeight = received->newGameHeight;
-			info->gameInfo->inputInfo->newGamePlayerCount = received->newGamePlayerCount;
-			info->gameInfo->inputInfo->newGameTimeLimit = received->newGameTimeLimit;
-			serverGameInfoInitializer(info);
+			else {
+				printf("Game is already running at this time.\n");
+			}
 			break;
 		case '0':
 			printf("Reallocation error had by client %d.\n", info->playerID);
 			break;
-		case 'r':
-			if (head == NULL) {
-				spawnSnake(info->gameInfo, info->playerID);
+		case 'j':
+			int playerCount = 0;
+			for (int i = 0; i < MAX_PLAYERS; i++) {
+				Segment* head = info->gameInfo->heads[i];
+				if (head != NULL) {
+					playerCount++;
+				}
 			}
+			if (playerCount < info->gameInfo->inputInfo->newGamePlayerCount) {
+				
+				if (head == NULL) {
+					spawnSnake(info->gameInfo, info->playerID);
+				}
+			}
+			break;
+		case 'e':
+			info->needToQuit = TRUE;
+			newStatus = FALSE;
 			break;
 		}
 			
@@ -288,19 +309,60 @@ DWORD WINAPI ClientReceiver(void* arg) {
 
 DWORD WINAPI TickHandler(void* arg) {
 	ServerInfo* tick = (ServerInfo*)arg;
+	int noPlayersConnectedMS = 0;
 	while (1) {
 		Sleep(TICK_INTERVAL_MS); // Tick every second
-		if (!tick->serverClosing) {
-			SetEvent(tick->tickEvent);
-			AcquireSRWLockExclusive(&tick->mapLock);
-			updateSnake(tick->gameInfo);
-			ReleaseSRWLockExclusive(&tick->mapLock);
+		if (!tick[0].serverClosing) {
+			SetEvent(tick[0].tickEvent);
+			AcquireSRWLockExclusive(&tick[0].mapLock);
+			int connectedPlayers = 0;
+			for (int i = 0; i < MAX_PLAYERS; i++) {
+				ServerInfo* info = &tick[i];
+				if (info->isConnected) {
+					connectedPlayers++;
+				}
+			}
+			if (connectedPlayers > 0) {
+				noPlayersConnectedMS = 0;
+				updateSnake(tick[0].gameInfo);
+				int playerCount = 0;
+				if (tick[0].gameInfo->isRunning) {
+					for (int i = 0; i < MAX_PLAYERS; i++) {
+						if (tick[0].gameInfo->heads[i] != NULL) {
+							playerCount++;
+						}
+					}
+					if (playerCount > 0) {
+						tick[0].gameInfo->elapsedTimeMS = 0;
+					}
+					else {
+						tick[0].gameInfo->elapsedTimeMS += TICK_INTERVAL_MS;
+					}
+					if (tick[0].gameInfo->elapsedTimeMS >= 10000) {
+						tick[0].gameInfo->isRunning = FALSE;
+						printf("No players playing for 10 seconds. Stopping the game.\n");
+					}
+				}
+			}
+			else {
+				noPlayersConnectedMS += TICK_INTERVAL_MS;
+			}
+			if (noPlayersConnectedMS >= 10000) {
+				printf("No players connected for 10 seconds. Stopping the server.\n");
+				for (int i = 0; i < MAX_PLAYERS; i++) {
+					closesocket(tick[i].clientSocket);
+					tick[i].serverClosing = TRUE;
+				}
+				ResetEvent(tick[0].tickEvent);
+				SetEvent(tick[0].tickEvent);
+			}
+			ReleaseSRWLockExclusive(&tick[0].mapLock);
 		}
 		else {
 			break;
 		}
 		Sleep(25);
-		ResetEvent(tick->tickEvent);
+		ResetEvent(tick[0].tickEvent);
 	}
 	return 0;
 }
@@ -382,19 +444,26 @@ int main() {
 		serverInfo[0].gameInfo = (GameInfo*)malloc(sizeof(GameInfo));
 		serverInfo[0].gameInfo->isRunning = FALSE;
 		serverInfo[0].gameInfo->inputInfo = (InputInfo*)malloc(sizeof(InputInfo));
-		serverGameInfoInitializer(&serverInfo[0]);
+		serverInfo[0].gameInfo->elapsedTimeMS = 0;
+		serverInfo[0].gameInfo->drawArgs = NULL;
+		//serverGameInfoInitializer(&serverInfo[0]);
 		for (size_t i = 0; i < MAX_PLAYERS; i++)
 		{
 			serverInfo[i].gameInfo = serverInfo[0].gameInfo;
+			
+			serverInfo[0].gameInfo->heads[i] = NULL;
+			serverInfo[0].gameInfo->food[i] = NULL;
+
 			serverInfo[i].mapLock = serverInfo[0].mapLock;
 			serverInfo[i].tickEvent = tickEvent;
 			serverInfo[i].playerID = i;
 			serverInfo[i].isConnected = FALSE;
 			serverInfo[i].needToQuit = FALSE;
 			serverInfo[i].serverClosing = FALSE;
+			
 		}
 
-		HANDLE tThread = CreateThread(NULL, 0, TickHandler, &serverInfo[0], 0, NULL);
+		HANDLE tThread = CreateThread(NULL, 0, TickHandler, serverInfo, 0, NULL);
 		if (tThread == NULL) {
 			printf("Could not create server tick thread\n", GetLastError());
 			closesocket(clientSocket);
@@ -404,58 +473,75 @@ int main() {
 			CloseHandle(tThread); // Close the thread handle as we don't need it
 		}
 
-		while (1) {
-			_Bool dbgAccept = FALSE;
-			clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
-			ServerInfo* emptySlot = findEmptyServerInfoSlot(serverInfo);
-			if (emptySlot == NULL) {
-				printf("No available slots for new clients.\n");
-				closesocket(clientSocket);
-			}
-			else {
-				emptySlot->clientSocket = clientSocket;
-				emptySlot->isConnected = TRUE;
-				emptySlot->needToQuit = FALSE;
-				if (clientSocket != INVALID_SOCKET) {
-					printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
-					/*
-					if (emptySlot->gameInfo->heads[emptySlot->playerID] == NULL) {
-						spawnSnake(emptySlot->gameInfo, emptySlot->playerID);
-					}
-					*/
-					// Create a thread for this specific client
-					HANDLE sThread = CreateThread(NULL, 0, ClientSender, emptySlot, 0, NULL);
-					HANDLE rThread = CreateThread(NULL, 0, ClientReceiver, emptySlot, 0, NULL);
-					if (sThread == NULL) {
-						printf("Could not create sender thread for client: %d\n", GetLastError());
-						closesocket(clientSocket);
-						return 5;
-					}
-					else {
-						CloseHandle(sThread); // Close the thread handle as we don't need it
-					}
-					if (rThread == NULL) {
-						printf("Could not create receiver thread for client: %d\n", GetLastError());
-						closesocket(clientSocket);
-						return 6;
-					}
-					else {
-						CloseHandle(rThread); // Close the thread handle as we don't need it
-					}
-					serverInfo[0].serverClosing = FALSE;
-					dbgAccept = FALSE;
-				}
-			}
-			if (dbgAccept) {
+		while (!serverInfo[0].serverClosing) {
+			struct timeval timeout;
+			timeout.tv_sec = 4; // Check every 4 seconds
+			timeout.tv_usec = 0;
+
+			fd_set readfds;
+			FD_ZERO(&readfds);
+			FD_SET(serverSocket, &readfds);
+
+			// 2. Wait for a connection OR timeout
+			int activity = select(0, &readfds, NULL, NULL, &timeout);
+
+			if (activity == SOCKET_ERROR) {
+				printf("Select failed: %d\n", WSAGetLastError());
 				break;
+			}
+
+			if (activity > 0) {
+				clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
+				if (serverInfo[0].serverClosing) {
+					break;
+				}
+				if (clientSocket != INVALID_SOCKET) {
+					ServerInfo* emptySlot = findEmptyServerInfoSlot(serverInfo);
+					if (emptySlot == NULL) {
+						printf("No available slots for new clients.\n");
+						closesocket(clientSocket);
+					}
+					else {
+						emptySlot->clientSocket = clientSocket;
+						emptySlot->isConnected = TRUE;
+						emptySlot->needToQuit = FALSE;
+
+						printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
+						/*
+						if (emptySlot->gameInfo->heads[emptySlot->playerID] == NULL) {
+							spawnSnake(emptySlot->gameInfo, emptySlot->playerID);
+						}
+						*/
+						// Create a thread for this specific client
+
+						HANDLE sThread = CreateThread(NULL, 0, ClientSender, emptySlot, 0, NULL);
+						HANDLE rThread = CreateThread(NULL, 0, ClientReceiver, emptySlot, 0, NULL);
+						if (sThread == NULL) {
+							printf("Could not create sender thread for client: %d\n", GetLastError());
+							closesocket(clientSocket);
+							return 5;
+						}
+						else {
+							CloseHandle(sThread); // Close the thread handle as we don't need it
+						}
+						if (rThread == NULL) {
+							printf("Could not create receiver thread for client: %d\n", GetLastError());
+							closesocket(clientSocket);
+							return 6;
+						}
+						else {
+							CloseHandle(rThread); // Close the thread handle as we don't need it
+						}
+					}
+				}
 			}
 		}
 
-		for (int i = 0; i < serverInfo[0].gameInfo->drawArgs->height; i++) {
-			free(serverInfo[0].gameInfo->drawArgs->map[i]);
+		if (serverInfo[0].gameInfo->drawArgs != NULL) {
+			free(serverInfo[0].gameInfo->drawArgs->map);
+			free(serverInfo[0].gameInfo->drawArgs);
 		}
-		free(serverInfo[0].gameInfo->drawArgs->map);
-		free(serverInfo[0].gameInfo->drawArgs);
+		free(serverInfo[0].gameInfo->inputInfo);
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			Segment* current = serverInfo[0].gameInfo->heads[i];
 			if (current != NULL) {
@@ -473,7 +559,6 @@ int main() {
 		
 		closesocket(serverSocket);
 		WSACleanup();
-		system("pause");
 		_CrtDumpMemoryLeaks();
 	}
 	return 0;
