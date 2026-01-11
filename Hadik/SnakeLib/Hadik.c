@@ -6,7 +6,6 @@ void clear_buffer() {
 	while ((c = getchar()) != '\n' && c != EOF);
 }
 
-
 int draw(void* arg) {
 	GameInfo* args = (GameInfo*)arg;
 
@@ -16,44 +15,63 @@ int draw(void* arg) {
 	info.bVisible = FALSE;
 	SetConsoleCursorInfo(consoleHandle, &info);
 	_Bool needToClear = TRUE;
-
-	system("cls");
-
+	char* outputBuffer = malloc((MAX_GAME_HEIGHT * (MAX_GAME_WIDTH + 1)) + 1024);
+	int currentTime = 0;
+	int scores[MAX_PLAYERS];
 	while (1) {
 		WaitForSingleObject(args->drawArgs->dEvent, INFINITE);
-		COORD cursorPosition = { 0, 0 };
-		SetConsoleCursorPosition(consoleHandle, cursorPosition);
-		AcquireSRWLockExclusive(&args->tickLock);
-		int* currentMode = &args->inputInfo->mode;
+		
+		AcquireSRWLockExclusive(args->tickLock);
+		int currentMode = args->inputInfo->mode;
 		if (!args->inputInfo->continueGame) {
-			system("cls");
-			printf("Game was quit.\n");
-			ReleaseSRWLockExclusive(&args->tickLock);
+			printf("Game will no longer continue.\n");
+			ReleaseSRWLockExclusive(args->tickLock);
 			break;
 		}
-		if (*currentMode == MODE_MENU) {
+		COORD cursorPosition = { 0, 0 };
+		SetConsoleCursorPosition(consoleHandle, cursorPosition);
+		if (currentMode == MODE_MENU) {
 			if (needToClear) {
 				system("cls");
 				needToClear = FALSE;
 			}
 			printf("Menu Mode\nn - New game\nj - Join game\nc - Continue\ne- Exit\n");
 		}
-		else if (*currentMode == MODE_PLAY) {
+		else if (currentMode == MODE_PLAY) {
+			memset(outputBuffer, ' ', MAX_GAME_HEIGHT * (MAX_GAME_WIDTH + 1) + 1024);
 			if (!needToClear) {
 				system("cls");
 			}
 			needToClear = TRUE;
+			int pos = 0;
 			for (int i = 0; i < args->drawArgs->height; i++) {
-				for (int j = 0; j < args->drawArgs->width; j++) {
-					if (j % args->drawArgs->width == 0) {
-						printf("\n");
-					}
-					printf("%c", args->drawArgs->map[i * args->drawArgs->width + j]);
+				memcpy(outputBuffer + pos, &args->drawArgs->map[i * args->drawArgs->width], args->drawArgs->width);
+				pos += args->drawArgs->width;
+				outputBuffer[pos++] = '\n';
+			}
+			outputBuffer[pos] = '\0';
+			for (int i = 0; i < MAX_PLAYERS; i++) {
+				scores[i] = args->playerScores[i];
+			}
+			currentTime = args->gameTime;
+		}
+		ReleaseSRWLockExclusive(args->tickLock);
+		if (currentMode == MODE_PLAY) {
+			printf("%s", outputBuffer);
+			printf("\nGame time: %d", currentTime / 1000);
+			for (int i = 0; i < MAX_PLAYERS; i++) {
+				int score = scores[i];
+				if (score >= 0) {
+					printf("\nPlayer %c score: %d", 'A' + i, score);
+				}
+				else {
+					char empty = ' ';
+					printf("\n%20c", empty);
 				}
 			}
 		}
-		ReleaseSRWLockExclusive(&args->tickLock);
 	}
+	free(outputBuffer);
 	return 0;
 }
 
@@ -62,17 +80,16 @@ int inputHandler(void* arg) {
 	int* socket = &input->inputInfo->clientSocket;
 	char sendThis = ' ';
 	char buffer[10];
-	char response = ' ';
 	while (1) {
 		if (_kbhit()) {
 			int ch = _getch();
-			AcquireSRWLockExclusive(&input->tickLock);
+			AcquireSRWLockExclusive(input->tickLock);
 			int* currentMode = &input->inputInfo->mode;
-			ReleaseSRWLockExclusive(&input->tickLock);
+			ReleaseSRWLockExclusive(input->tickLock);
 			if (*currentMode == MODE_MENU) {
 				switch (ch) {
 				case 'n': case 'N':
-					AcquireSRWLockExclusive(&input->tickLock);
+					AcquireSRWLockExclusive(input->tickLock);
 					system("cls");
 					printf("Starting new game...\n");
 					printf("Enter width (min 10, max %d): ", MAX_GAME_WIDTH);
@@ -126,42 +143,10 @@ int inputHandler(void* arg) {
 					input->inputInfo->newGameTimeLimit = potentialTimeLimit;
 					input->drawArgs->height = potentialHeight;
 					input->drawArgs->width = potentialWidth;
-
-					if (potentialHeight != input->drawArgs->height || potentialWidth != input->drawArgs->width) {
-						int reallErrors = 0;
-						char* potentialMap = (char*)realloc(input->drawArgs->map, input->drawArgs->height * input->drawArgs->width * sizeof(char*));
-						if (potentialMap != NULL) {
-							/*
-							for (int i = 0; i < input->drawArgs->height; i++) {
-								char* potentialRow = (char*)realloc(input->drawArgs->map[i], sizeof(char) * input->drawArgs->width);
-								if (potentialRow != NULL) {
-									potentialMap[i] = potentialRow;
-								}
-								else {
-									reallErrors++;
-									break;
-								}
-							}
-							*/
-						}
-						else {
-							reallErrors++;
-						}
-
-						if (reallErrors > 0) {
-							printf("Memory allocation failed, cannot start new game.\n");
-							sendThis = '0';
-							ReleaseSRWLockExclusive(&input->tickLock);
-							break;
-						}
-						else {
-							input->drawArgs->map = potentialMap;
-						}
-					}
-
+					
 					system("pause");
-					ReleaseSRWLockExclusive(&input->tickLock);
 					input->inputInfo->mode = MODE_PLAY;
+					ReleaseSRWLockExclusive(input->tickLock);
 					system("cls");
 					sendThis = 'n';
 					break;
@@ -170,15 +155,15 @@ int inputHandler(void* arg) {
 					break;
 				case 'c': case 'C':
 					sendThis = 'c';
-					AcquireSRWLockExclusive(&input->tickLock);
+					AcquireSRWLockExclusive(input->tickLock);
 					*currentMode = MODE_PLAY;
-					ReleaseSRWLockExclusive(&input->tickLock);
+					ReleaseSRWLockExclusive(input->tickLock);
 					break;
 				case 'e': case 'E':
 					sendThis = 'e';
-					AcquireSRWLockExclusive(&input->tickLock);
+					AcquireSRWLockExclusive(input->tickLock);
 					input->inputInfo->continueGame = FALSE;
-					ReleaseSRWLockExclusive(&input->tickLock);
+					ReleaseSRWLockExclusive(input->tickLock);
 					send(*socket, &sendThis, 1, 0);
 					return 0;
 				}
@@ -203,9 +188,9 @@ int inputHandler(void* arg) {
 					break;
 				case 'm': case 'M':
 					sendThis = 'm';
-					AcquireSRWLockExclusive(&input->tickLock);
+					AcquireSRWLockExclusive(input->tickLock);
 					*currentMode = MODE_MENU;
-					ReleaseSRWLockExclusive(&input->tickLock);
+					ReleaseSRWLockExclusive(input->tickLock);
 					break;
 				case 'r': case 'R':
 					sendThis = 'r';
@@ -218,36 +203,19 @@ int inputHandler(void* arg) {
 			switch (sendThis) {
 			case 'n':
 				send(*socket, (char*)input->inputInfo, sizeof(InputInfo), 0);
-				/*
-				recv(*socket, &response, 1, 0);
-				if (response == 'y') {
-					AcquireSRWLockExclusive(&input->tickLock);
-					*currentMode = MODE_PLAY;
-					ReleaseSRWLockExclusive(&input->tickLock);
-				}
-				*/
+				
 				break;
 			case 'j':
-				/*
-				recv(*socket, &response, 1, 0);
-				if (response == 'y') {
-					AcquireSRWLockExclusive(&input->tickLock);
-					*currentMode = MODE_PLAY;
-					ReleaseSRWLockExclusive(&input->tickLock);
-				}
-				else {
-					printf("Current game is full!\n");
-				}
-				*/
+				
 				break;
 			}
 		}
-		AcquireSRWLockExclusive(&input->tickLock);
+		AcquireSRWLockExclusive(input->tickLock);
 		if (!input->inputInfo->continueGame) {
-			ReleaseSRWLockExclusive(&input->tickLock);
+			ReleaseSRWLockExclusive(input->tickLock);
 			break;
 		}
-		ReleaseSRWLockExclusive(&input->tickLock);
+		ReleaseSRWLockExclusive(input->tickLock);
 	}
 	return 0;
 }
@@ -347,6 +315,7 @@ void updateSnake(void* arg) {
 									next->isAlive = TRUE;
 									next->next = NULL;
 									last->next = next;
+									args->playerScores[i]++;
 								}
 							}
 
@@ -368,6 +337,7 @@ void updateSnake(void* arg) {
 			}
 			current = args->heads[i];
 			if (!current->isAlive) {
+				args->playerScores[i] = 0;
 				deSnake(current);
 				args->heads[i] = NULL;
 			}

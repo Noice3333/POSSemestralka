@@ -1,4 +1,4 @@
-add_executable(Server "Server.c")
+add_executable(Server "Server.c" "Server.h")
 target_sources(Server PUBLIC
 	Server.c
 )

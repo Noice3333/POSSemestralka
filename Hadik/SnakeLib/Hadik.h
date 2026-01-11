@@ -75,7 +75,8 @@ typedef struct Segment {
 	int x;
 	int y;
 	Direction direction;
-	BOOLEAN isAlive;
+	_Bool isAlive;
+	_Bool isPaused;
 	char segChar;
 } Segment;
 
@@ -87,22 +88,28 @@ typedef struct InputInfo {
 	int clientSocket;
 	int mode;
 	_Bool continueGame;
+	_Bool permissionToConnect;
 } InputInfo;
 
 typedef struct MapPacket {
 	int width;
 	int height;
 	int mapSize;
+	int playerScores[MAX_PLAYERS];
+	int gameTime;
 	_Bool permissionToConnect;
+
 } MapPacket;
 
 typedef struct {
 	Segment* heads[MAX_PLAYERS];
 	Segment* food[MAX_PLAYERS];
 	DrawArgs* drawArgs;
-	SRWLOCK tickLock;
+	SRWLOCK* tickLock;
 	InputInfo* inputInfo;
+	int playerScores[MAX_PLAYERS];
 	int elapsedTimeMS;
+	int gameTime;
 	_Bool isRunning;
 } GameInfo;
 
@@ -121,7 +128,7 @@ typedef struct ServerInfo {
 	_Bool isConnected;
 	_Bool needToQuit;
 	_Bool serverClosing;
-	SRWLOCK mapLock;
+	SRWLOCK* mapLock;
 } ServerInfo;
 
 SNAKE_API int draw(void* arg);

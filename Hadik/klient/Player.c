@@ -1,11 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <crtdbg.h>
-#include "Hadik.h"
-
-
-#define SNAKE_PORT 12367
-#define BUFFER_SIZE 4096
+#include "Player.h"
 
 int gameTick(void* arg) {
 	TickInfo* tick = (TickInfo*)arg;
@@ -23,6 +16,10 @@ int gameTick(void* arg) {
 			int bytesRead = recv(tick->clientSocket, buffer + totalRead, sizeof(MapPacket) - totalRead, 0);
 			if (bytesRead <= 0) {
 				printf("Connection closed by server or error occurred.\n");
+				AcquireSRWLockExclusive(tick->gameInfo->tickLock);
+				tick->gameInfo->inputInfo->continueGame = FALSE;
+				ReleaseSRWLockExclusive(tick->gameInfo->tickLock);
+				SetEvent(tick->gameInfo->drawArgs->dEvent);
 				return 1;
 			}
 			totalRead += bytesRead;
@@ -32,8 +29,21 @@ int gameTick(void* arg) {
 		mapInfo = NULL;
 		memset(buffer, 0, BUFFER_SIZE);
 		totalRead = 0;
-		
-		AcquireSRWLockExclusive(&tick->gameInfo->tickLock);
+		char* localBuffer = malloc(localMapInfo.mapSize);
+		if (localBuffer) {
+			while (totalRead < localMapInfo.mapSize) {
+				int bytesRead = recv(tick->clientSocket, localBuffer + totalRead, localMapInfo.mapSize - totalRead, 0);
+				if (bytesRead < 0) {
+					printf("Connection closed by server or error occurred.\n");
+					tick->gameInfo->inputInfo->continueGame = FALSE;
+					ReleaseSRWLockExclusive(tick->gameInfo->tickLock);
+					SetEvent(tick->gameInfo->drawArgs->dEvent);
+					return 1;
+				}
+				totalRead += bytesRead;
+			}
+		}
+		AcquireSRWLockExclusive(tick->gameInfo->tickLock);
 		if (localMapInfo.height * localMapInfo.width == localMapInfo.mapSize &&
 			localMapInfo.height >= 10 && localMapInfo.width >= 10 &&
 			localMapInfo.height <= MAX_GAME_HEIGHT &&
@@ -46,20 +56,13 @@ int gameTick(void* arg) {
 				tick->gameInfo->drawArgs->width = localMapInfo.width;
 			}
 		}
-		if (localMapInfo.mapSize > 0) {
-			while (totalRead < localMapInfo.mapSize) {
-				int bytesRead = recv(tick->clientSocket, tick->gameInfo->drawArgs->map + totalRead, localMapInfo.mapSize - totalRead, 0);
-				if (bytesRead < 0) {
-					printf("Connection closed by server or error occurred.\n");
-					tick->gameInfo->inputInfo->continueGame = FALSE;
-					ReleaseSRWLockExclusive(&tick->gameInfo->tickLock);
-					SetEvent(tick->gameInfo->drawArgs->dEvent);
-					return 1;
-				}
-				totalRead += bytesRead;
-			}
+		tick->gameInfo->gameTime = localMapInfo.gameTime;
+		for (int i = 0; i < MAX_PLAYERS; i++) {
+			tick->gameInfo->playerScores[i] = localMapInfo.playerScores[i];
 		}
-		ReleaseSRWLockExclusive(&tick->gameInfo->tickLock);
+		memcpy(tick->gameInfo->drawArgs->map, localBuffer, localMapInfo.mapSize);
+		ReleaseSRWLockExclusive(tick->gameInfo->tickLock);
+		free(localBuffer);
 		SetEvent(tick->gameInfo->drawArgs->dEvent);
 	}
 	return 0;
@@ -74,19 +77,21 @@ int consoleDrawGameWindow(int clientSocket) {
 	argum->width = DEFAULT_GAME_WIDTH;
 	argum->dEvent = dEvent;
 
-	char* map = (char*)malloc(argum->height * argum->width * sizeof(char*));
+	char* map = (char*)malloc(argum->height * argum->width * sizeof(char));
 	argum->map = map;
 
-	/*
-	for (int i = 0; i < argum->height; i++) {
-		map[i] = (char*)malloc(sizeof(char) * argum->width);
-	}
-	*/
 	TickInfo tickIn;
 	tickIn.gameInfo = (GameInfo*)malloc(sizeof(GameInfo));
 	tickIn.clientSocket = clientSocket;
 	tickIn.gameInfo->drawArgs = argum;
-	InitializeSRWLock(&tickIn.gameInfo->tickLock);
+	SRWLOCK tickLock;
+	InitializeSRWLock(&tickLock);
+	tickIn.gameInfo->tickLock = &tickLock;
+
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		tickIn.gameInfo->playerScores[i] = -1;
+	}
+	tickIn.gameInfo->gameTime = 0;
 
 	InputInfo inputIn;
 	inputIn.clientSocket = clientSocket;
@@ -94,21 +99,7 @@ int consoleDrawGameWindow(int clientSocket) {
 	inputIn.continueGame = TRUE;
 
 	tickIn.gameInfo->inputInfo = &inputIn;
-	/*
-	for (int i = 0; i < argum->height; i++) {
-		for (int j = 0; j < argum->width; j++) {
-			if (i == 0 || i == argum->height - 1) {
-				map[i][j] = '-';
-			}
-			else if (j == 0 || j == argum->width - 1) {
-				map[i][j] = '|';
-			}
-			else {
-				map[i][j] = ' ';
-			}
-		}
-	}
-	*/
+	
 
 	thrd_t drawThread;
 	thrd_t inputThread;
@@ -165,14 +156,12 @@ int main() {
 			return 3;
 		}
 
+		BOOL optVal = TRUE;
+		setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&optVal, sizeof(BOOL));
+
 		printf("Connected to server successfully.\n");
 
-		// Game logic starts here
-
-
 		consoleDrawGameWindow(clientSocket);
-
-
 
 		closesocket(clientSocket);
 		printf("Client closed.\n");

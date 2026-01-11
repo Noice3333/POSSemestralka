@@ -1,4 +1,4 @@
-add_executable(Player "Player.c")
+add_executable(Player "Player.c" "Player.h")
 target_sources(Player PUBLIC
 	Player.c
 )
