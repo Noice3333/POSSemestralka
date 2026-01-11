@@ -2,7 +2,7 @@ add_executable(server "server.c" "server.h")
 target_sources(server PUBLIC
 	server.c
 )
-target_link_libraries(server PRIVATE snakelib)
+target_link_libraries(server PRIVATE lib)
 target_include_directories(server PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}
 )

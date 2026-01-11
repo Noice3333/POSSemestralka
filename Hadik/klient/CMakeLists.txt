@@ -2,7 +2,7 @@ add_executable(client "client.c" "client.h")
 target_sources(client PUBLIC
 	client.c
 )
-target_link_libraries(client PRIVATE snakelib)
+target_link_libraries(client PRIVATE lib)
 target_include_directories(client PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}
 )
