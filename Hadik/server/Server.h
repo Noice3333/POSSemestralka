@@ -11,4 +11,3 @@
 
 #define SNAKE_PORT 12367
 #define BUFFER_SIZE 4096
-#define TICK_INTERVAL_MS 500

@@ -18,6 +18,7 @@ void spawnSnake(GameInfo* gameIn, int playerIndex) {
 		snakeHead->isPaused = FALSE;
 		snakeHead->next = NULL;
 		snakeHead->direction = DIRS[STOP];
+		snakeHead->pauseMS = WAIT_UNPAUSE_MS;
 		gameIn->heads[playerIndex] = snakeHead;
 		gameIn->drawArgs->map[gameIn->heads[playerIndex]->y * gameIn->drawArgs->width + gameIn->heads[playerIndex]->x] =
 			gameIn->heads[playerIndex]->segChar;
@@ -140,6 +141,7 @@ DWORD WINAPI ClientSender(void* arg) {
 		packet.mapSize = 0;
 		packet.width = DEFAULT_GAME_WIDTH;
 		packet.permissionToConnect = TRUE;
+		packet.isRunning = info[0].gameInfo->isRunning;
 		_Bool toPermit[MAX_PLAYERS];
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			packet.playerScores[i] = info[0].gameInfo->playerScores[i];
@@ -265,6 +267,11 @@ DWORD WINAPI ClientReceiver(void* arg) {
 			if (playerCount < info->gameInfo->inputInfo->newGamePlayerCount) {
 				if (head == NULL) {
 					spawnSnake(info->gameInfo, info->playerID);
+					for (int y = 0; y < MAX_PLAYERS; y++) {
+						if (info->gameInfo->heads[y] != NULL) {
+							info->gameInfo->heads[y]->pauseMS = 0;
+						}
+					}
 				}
 			}
 			break;
@@ -275,10 +282,13 @@ DWORD WINAPI ClientReceiver(void* arg) {
 		case 'm':
 			if (info->gameInfo->heads[info->playerID] != NULL)
 				info->gameInfo->heads[info->playerID]->isPaused = TRUE;
+				info->gameInfo->heads[info->playerID]->pauseMS = 0;
 			break;
 		case 'c':
-			if (info->gameInfo->heads[info->playerID] != NULL)
+			if (info->gameInfo->heads[info->playerID] != NULL) {
 				info->gameInfo->heads[info->playerID]->isPaused = FALSE;
+				info->gameInfo->heads[info->playerID]->pauseMS = 0;
+			}
 			break;
 		}
 			
@@ -431,20 +441,8 @@ int main() {
 		struct sockaddr_in clientAddress;
 		socklen_t clienLength;
 		clienLength = sizeof(clientAddress);
-		/*
-		clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddress, &clienLength);
-		if (clientSocket < 0) {
-			perror("Accept failed.\n");
-			closesocket(serverSocket);
-			return 4;
-		}
-		//printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
-		*/
-
-
 		HANDLE tickEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 		ServerInfo serverInfo[MAX_PLAYERS];
-		//serverGameInfoInitializer(&serverInfo[0]);
 		SRWLOCK maplock;
 		InitializeSRWLock(&maplock);
 		serverInfo[0].mapLock = &maplock;
@@ -454,7 +452,6 @@ int main() {
 		serverInfo[0].gameInfo->elapsedTimeMS = 0;
 		serverInfo[0].gameInfo->drawArgs = NULL;
 		serverInfo[0].gameInfo->gameTime = 0;
-		//serverGameInfoInitializer(&serverInfo[0]);
 		for (size_t i = 0; i < MAX_PLAYERS; i++)
 		{
 			serverInfo[i].gameInfo = serverInfo[0].gameInfo;
@@ -533,13 +530,6 @@ int main() {
 						emptySlot->needToQuit = FALSE;
 
 						printf("Client connected: %s:%d\n", inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
-						/*
-						if (emptySlot->gameInfo->heads[emptySlot->playerID] == NULL) {
-							spawnSnake(emptySlot->gameInfo, emptySlot->playerID);
-						}
-						*/
-						// Create a thread for this specific client
-
 						
 						HANDLE rThread = CreateThread(NULL, 0, ClientReceiver, emptySlot, 0, NULL);
 						if (rThread == NULL) {

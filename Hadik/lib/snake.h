@@ -16,6 +16,9 @@
 #define SNAKE_API
 #endif
 
+#define TICK_INTERVAL_MS 500
+#define WAIT_UNPAUSE_MS 3000
+
 #define MAX_PLAYERS 4
 #define MAX_GAME_WIDTH 70
 #define MAX_GAME_HEIGHT 30
@@ -75,6 +78,7 @@ typedef struct Segment {
 	struct Segment* next;
 	int x;
 	int y;
+	int pauseMS;
 	Direction direction;
 	_Bool isAlive;
 	_Bool isPaused;
@@ -100,6 +104,7 @@ typedef struct MapPacket {
 	int playerScores[MAX_PLAYERS];
 	int gameTime;
 	_Bool permissionToConnect;
+	_Bool isRunning;
 
 } MapPacket;
 
