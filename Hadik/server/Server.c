@@ -1,4 +1,4 @@
-#include "Server.h"
+#include "server.h"
 
 void spawnSnake(GameInfo* gameIn, int playerIndex) {
 	if (gameIn != NULL) {
@@ -15,6 +15,7 @@ void spawnSnake(GameInfo* gameIn, int playerIndex) {
 		}
 		snakeHead->segChar = 'A' + playerIndex;
 		snakeHead->isAlive = TRUE;
+		snakeHead->isPaused = FALSE;
 		snakeHead->next = NULL;
 		snakeHead->direction = DIRS[STOP];
 		gameIn->heads[playerIndex] = snakeHead;
@@ -111,11 +112,12 @@ int serverGameInfoInitializer(ServerInfo* info) {
 		spawnFood(gameIn, i);
 	}
 
-	if (1) {
+	if (info->gameInfo->inputInfo->obstacles) {
 		for (int i = 0; i < argum->height * argum->width / 20; i++) {
 			Position* pos = findEmptySpace(gameIn);
 			if (pos != NULL) {
-				argum->map[pos->y * argum->width + pos->x] = 'X';
+				argum->map[pos->y * argum->width + pos->x] = '=';
+				free(pos);
 			}
 		}
 	}
@@ -138,8 +140,15 @@ DWORD WINAPI ClientSender(void* arg) {
 		packet.mapSize = 0;
 		packet.width = DEFAULT_GAME_WIDTH;
 		packet.permissionToConnect = TRUE;
+		_Bool toPermit[MAX_PLAYERS];
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			packet.playerScores[i] = info[0].gameInfo->playerScores[i];
+			if (info[0].gameInfo->heads[i] != NULL) {
+				toPermit[i] = TRUE;
+			}
+			else {
+				toPermit[i] = FALSE;
+			}
 		}
 		packet.gameTime = info[0].gameInfo->gameTime;
 		int expectedSize = 0;
@@ -155,6 +164,7 @@ DWORD WINAPI ClientSender(void* arg) {
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			if (info[i].isConnected) {
 				SOCKET clientSocket = info[i].clientSocket;
+				packet.permissionToConnect = toPermit[i];
 				int result = send(clientSocket, (void*)&packet, sizeof(MapPacket), 0);
 				if (result <= 0) {
 					info[i].isConnected = FALSE;
@@ -172,6 +182,7 @@ DWORD WINAPI ClientSender(void* arg) {
 }
 
 DWORD WINAPI ClientReceiver(void* arg) {
+	srand(time(NULL));
 	ServerInfo* info = (ServerInfo*)arg;
 	SOCKET clientSocket = info->clientSocket;
 	char buffer[BUFFER_SIZE];
@@ -233,6 +244,7 @@ DWORD WINAPI ClientReceiver(void* arg) {
 				info->gameInfo->inputInfo->newGameHeight = received->newGameHeight;
 				info->gameInfo->inputInfo->newGamePlayerCount = received->newGamePlayerCount;
 				info->gameInfo->inputInfo->newGameTimeLimit = received->newGameTimeLimit;
+				info->gameInfo->inputInfo->obstacles = received->obstacles;
 				serverGameInfoInitializer(info);
 			}
 			else {
@@ -251,7 +263,6 @@ DWORD WINAPI ClientReceiver(void* arg) {
 				}
 			}
 			if (playerCount < info->gameInfo->inputInfo->newGamePlayerCount) {
-				
 				if (head == NULL) {
 					spawnSnake(info->gameInfo, info->playerID);
 				}
@@ -260,6 +271,14 @@ DWORD WINAPI ClientReceiver(void* arg) {
 		case 'e':
 			info->needToQuit = TRUE;
 			newStatus = FALSE;
+			break;
+		case 'm':
+			if (info->gameInfo->heads[info->playerID] != NULL)
+				info->gameInfo->heads[info->playerID]->isPaused = TRUE;
+			break;
+		case 'c':
+			if (info->gameInfo->heads[info->playerID] != NULL)
+				info->gameInfo->heads[info->playerID]->isPaused = FALSE;
 			break;
 		}
 			
@@ -286,6 +305,7 @@ DWORD WINAPI ClientReceiver(void* arg) {
 }
 
 DWORD WINAPI TickHandler(void* arg) {
+	srand(time(NULL));
 	ServerInfo* tick = (ServerInfo*)arg;
 	int noPlayersConnectedMS = 0;
 	while (1) {
@@ -303,25 +323,32 @@ DWORD WINAPI TickHandler(void* arg) {
 			if (connectedPlayers > 0) {
 				noPlayersConnectedMS = 0;
 				updateSnake(tick[0].gameInfo);
-				int playerCount = 0;
 				if (tick[0].gameInfo->isRunning) {
-					for (int i = 0; i < MAX_PLAYERS; i++) {
-						if (tick[0].gameInfo->heads[i] != NULL) {
-							playerCount++;
-						}
-					}
-					if (playerCount > 0) {
-						tick[0].gameInfo->elapsedTimeMS = 0;
+					tick[0].gameInfo->gameTime += TICK_INTERVAL_MS;
+					if (tick[0].gameInfo->inputInfo->newGameTimeLimit > 0 &&
+						tick[0].gameInfo->gameTime / 1000 >= tick[0].gameInfo->inputInfo->newGameTimeLimit) {
+						tick[0].gameInfo->isRunning = FALSE;
+						printf("Time limit reached. Game over!\n");
 					}
 					else {
-						tick[0].gameInfo->elapsedTimeMS += TICK_INTERVAL_MS;
-					}
-					if (tick[0].gameInfo->elapsedTimeMS >= 10000) {
-						tick[0].gameInfo->isRunning = FALSE;
-						printf("No players playing for 10 seconds. Stopping the game.\n");
+						int playerCount = 0;
+						for (int i = 0; i < MAX_PLAYERS; i++) {
+							if (tick[0].gameInfo->heads[i] != NULL) {
+								playerCount++;
+							}
+						}
+						if (playerCount > 0) {
+							tick[0].gameInfo->elapsedTimeMS = 0;
+						}
+						else {
+							tick[0].gameInfo->elapsedTimeMS += TICK_INTERVAL_MS;
+						}
+						if (tick[0].gameInfo->elapsedTimeMS >= 10000) {
+							tick[0].gameInfo->isRunning = FALSE;
+							printf("No players playing for 10 seconds. Stopping the game.\n");
+						}
 					}
 				}
-				tick[0].gameInfo->gameTime += TICK_INTERVAL_MS;
 			}
 			else {
 				noPlayersConnectedMS += TICK_INTERVAL_MS;
@@ -489,10 +516,10 @@ int main() {
 					int optLen = sizeof(BOOL);
 
 					if (setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&optVal, optLen) == SOCKET_ERROR) {
-						printf("Nepodarilo sa nastavit TCP_NODELAY pre klienta. Chyba: %d\n", WSAGetLastError());
+						printf("Failed to set TCP_NODELAY for cleint. Error: %d\n", WSAGetLastError());
 					}
 					else {
-						printf("Nagleov algoritmus vypnuty pre klienta.\n");
+						printf("TCP_NODELAY set for client.\n");
 					}
 
 					ServerInfo* emptySlot = findEmptyServerInfoSlot(serverInfo);

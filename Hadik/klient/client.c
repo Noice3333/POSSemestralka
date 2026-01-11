@@ -1,4 +1,4 @@
-#include "Player.h"
+#include "client.h"
 
 int gameTick(void* arg) {
 	TickInfo* tick = (TickInfo*)arg;
@@ -57,6 +57,7 @@ int gameTick(void* arg) {
 			}
 		}
 		tick->gameInfo->gameTime = localMapInfo.gameTime;
+		tick->gameInfo->inputInfo->permissionToConnect = localMapInfo.permissionToConnect;
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			tick->gameInfo->playerScores[i] = localMapInfo.playerScores[i];
 		}
@@ -113,7 +114,7 @@ int consoleDrawGameWindow(int clientSocket) {
 	thrd_join(tickThread, NULL);
 
 	
-	free(map);
+	free(tickIn.gameInfo->drawArgs->map);
 	free(tickIn.gameInfo->drawArgs);
 	free(tickIn.gameInfo);
 

@@ -19,11 +19,12 @@
 #define MAX_PLAYERS 4
 #define MAX_GAME_WIDTH 70
 #define MAX_GAME_HEIGHT 30
-#define MAX_GAME_TIME 10000
+#define MAX_GAME_TIME 180
 #define DEFAULT_GAME_WIDTH 30
 #define DEFAULT_GAME_HEIGHT 20
 #define DEFAULT_GAME_TIME 0
 #define DEFAULT_PLAYER_COUNT 1
+#define DEFAULT_OBSTACLE_STATE 0
 
 typedef struct {
 	int width;
@@ -87,6 +88,7 @@ typedef struct InputInfo {
 	int newGameTimeLimit;
 	int clientSocket;
 	int mode;
+	_Bool obstacles;
 	_Bool continueGame;
 	_Bool permissionToConnect;
 } InputInfo;

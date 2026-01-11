@@ -1,14 +1,14 @@
-add_executable(Server "Server.c" "Server.h")
-target_sources(Server PUBLIC
-	Server.c
+add_executable(server "server.c" "server.h")
+target_sources(server PUBLIC
+	server.c
 )
-target_link_libraries(Server PRIVATE SnakeLib)
-target_include_directories(Server PUBLIC
+target_link_libraries(server PRIVATE snakelib)
+target_include_directories(server PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}
 )
 if(WIN32)
-add_custom_command(TARGET Server POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:Server> $<TARGET_RUNTIME_DLLS:Server>
+add_custom_command(TARGET server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:server> $<TARGET_RUNTIME_DLLS:server>
     COMMAND_EXPAND_LISTS
 )
 endif()
